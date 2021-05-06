@@ -9,9 +9,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 
-// Remove once HttpSys has enabled nullable
-#nullable enable
-
 namespace Microsoft.AspNetCore.HttpSys.Internal
 {
     internal class HeaderCollection : IHeaderDictionary
@@ -121,7 +118,7 @@ namespace Microsoft.AspNetCore.HttpSys.Internal
             get
             {
                 long value;
-                var rawValue = this[HttpKnownHeaderNames.ContentLength];
+                var rawValue = this[HeaderNames.ContentLength];
 
                 if (_contentLengthText.Equals(rawValue))
                 {
@@ -151,12 +148,12 @@ namespace Microsoft.AspNetCore.HttpSys.Internal
                         throw new ArgumentOutOfRangeException("value", value.Value, "Cannot be negative.");
                     }
                     _contentLengthText = HeaderUtilities.FormatNonNegativeInt64(value.Value);
-                    this[HttpKnownHeaderNames.ContentLength] = _contentLengthText;
+                    this[HeaderNames.ContentLength] = _contentLengthText;
                     _contentLength = value;
                 }
                 else
                 {
-                    Remove(HttpKnownHeaderNames.ContentLength);
+                    Remove(HeaderNames.ContentLength);
                     _contentLengthText = StringValues.Empty;
                     _contentLength = null;
                 }

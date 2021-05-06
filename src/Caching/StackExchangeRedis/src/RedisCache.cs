@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Threading;
@@ -11,6 +10,10 @@ using StackExchange.Redis;
 
 namespace Microsoft.Extensions.Caching.StackExchangeRedis
 {
+    /// <summary>
+    /// Distributed cache implementation using Redis.
+    /// <para>Uses <c>StackExchange.Redis</c> as the Redis client.</para>
+    /// </summary>
     public class RedisCache : IDistributedCache, IDisposable
     {
         // KEYS[1] = = key
@@ -20,7 +23,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
         // ARGV[4] = data - byte[]
         // this order should not change LUA script depends on it
         private const string SetScript = (@"
-                redis.call('HMSET', KEYS[1], 'absexp', ARGV[1], 'sldexp', ARGV[2], 'data', ARGV[4])
+                redis.call('HSET', KEYS[1], 'absexp', ARGV[1], 'sldexp', ARGV[2], 'data', ARGV[4])
                 if ARGV[3] ~= '-1' then
                   redis.call('EXPIRE', KEYS[1], ARGV[3])
                 end
@@ -30,7 +33,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
         private const string DataKey = "data";
         private const long NotPresent = -1;
 
-        private volatile ConnectionMultiplexer _connection;
+        private volatile IConnectionMultiplexer _connection;
         private IDatabase _cache;
         private bool _disposed;
 
@@ -39,6 +42,10 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
 
         private readonly SemaphoreSlim _connectionLock = new SemaphoreSlim(initialCount: 1, maxCount: 1);
 
+        /// <summary>
+        /// Initializes a new instance of <see cref="RedisCache"/>.
+        /// </summary>
+        /// <param name="optionsAccessor">The configuration options.</param>
         public RedisCache(IOptions<RedisCacheOptions> optionsAccessor)
         {
             if (optionsAccessor == null)
@@ -52,6 +59,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             _instance = _options.InstanceName ?? string.Empty;
         }
 
+        /// <inheritdoc />
         public byte[] Get(string key)
         {
             if (key == null)
@@ -62,6 +70,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             return GetAndRefresh(key, getData: true);
         }
 
+        /// <inheritdoc />
         public async Task<byte[]> GetAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -74,6 +83,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             return await GetAndRefreshAsync(key, getData: true, token: token).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
         {
             if (key == null)
@@ -107,6 +117,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
                 });
         }
 
+        /// <inheritdoc />
         public async Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -142,6 +153,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
                 }).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
         public void Refresh(string key)
         {
             if (key == null)
@@ -152,6 +164,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             GetAndRefresh(key, getData: false);
         }
 
+        /// <inheritdoc />
         public async Task RefreshAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -177,14 +190,23 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             {
                 if (_cache == null)
                 {
-                    if (_options.ConfigurationOptions != null)
+                    if(_options.ConnectionMultiplexerFactory == null)
                     {
-                        _connection = ConnectionMultiplexer.Connect(_options.ConfigurationOptions);
+                        if (_options.ConfigurationOptions is not null)
+                        {
+                            _connection = ConnectionMultiplexer.Connect(_options.ConfigurationOptions);
+                        }
+                        else
+                        {
+                            _connection = ConnectionMultiplexer.Connect(_options.Configuration);
+                        }
                     }
                     else
                     {
-                        _connection = ConnectionMultiplexer.Connect(_options.Configuration);
+                        _connection = _options.ConnectionMultiplexerFactory().GetAwaiter().GetResult();
                     }
+
+                    TryRegisterProfiler();
                     _cache = _connection.GetDatabase();
                 }
             }
@@ -209,21 +231,37 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             {
                 if (_cache == null)
                 {
-                    if (_options.ConfigurationOptions != null)
+                    if(_options.ConnectionMultiplexerFactory is null)
                     {
-                        _connection = await ConnectionMultiplexer.ConnectAsync(_options.ConfigurationOptions).ConfigureAwait(false);
+                        if (_options.ConfigurationOptions is not null)
+                        {
+                            _connection = await ConnectionMultiplexer.ConnectAsync(_options.ConfigurationOptions).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _connection = await ConnectionMultiplexer.ConnectAsync(_options.Configuration).ConfigureAwait(false);
+                        }
                     }
                     else
                     {
-                        _connection = await ConnectionMultiplexer.ConnectAsync(_options.Configuration).ConfigureAwait(false);
+                        _connection = await _options.ConnectionMultiplexerFactory();
                     }
 
+                    TryRegisterProfiler();
                     _cache = _connection.GetDatabase();
                 }
             }
             finally
             {
                 _connectionLock.Release();
+            }
+        }
+
+        private void TryRegisterProfiler()
+        {
+            if (_connection != null && _options.ProfilingSession != null)
+            {
+                _connection.RegisterProfiler(_options.ProfilingSession);
             }
         }
 
@@ -301,6 +339,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             return null;
         }
 
+        /// <inheritdoc />
         public void Remove(string key)
         {
             if (key == null)
@@ -314,6 +353,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             // TODO: Error handling
         }
 
+        /// <inheritdoc />
         public async Task RemoveAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -423,7 +463,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
                     options.AbsoluteExpiration.Value,
                     "The absolute expiration value must be in the future.");
             }
-            
+
             if (options.AbsoluteExpirationRelativeToNow.HasValue)
             {
                 return creationTime + options.AbsoluteExpirationRelativeToNow;
@@ -432,6 +472,7 @@ namespace Microsoft.Extensions.Caching.StackExchangeRedis
             return options.AbsoluteExpiration;
         }
 
+        /// <inheritdoc />
         public void Dispose()
         {
             if (_disposed)

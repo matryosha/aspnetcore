@@ -3,8 +3,10 @@
 
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http.Features;
@@ -13,6 +15,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.FlowControl;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.Extensions.Logging;
 
@@ -57,7 +60,7 @@ namespace Microsoft.AspNetCore.Testing
         {
             var context = new HttpConnectionContext(
                 "TestConnectionId",
-                Server.Kestrel.Core.HttpProtocols.Http1,
+                HttpProtocols.Http1,
                 connectionContext,
                 serviceContext,
                 connectionFeatures,
@@ -70,11 +73,48 @@ namespace Microsoft.AspNetCore.Testing
             return context;
         }
 
+        public static HttpMultiplexedConnectionContext CreateHttp3ConnectionContext(
+            MultiplexedConnectionContext connectionContext = null,
+            ServiceContext serviceContext = null,
+            IFeatureCollection connectionFeatures = null,
+            MemoryPool<byte> memoryPool = null,
+            IPEndPoint localEndPoint = null,
+            IPEndPoint remoteEndPoint = null,
+            ITimeoutControl timeoutControl = null)
+        {
+            var http3ConnectionContext = new HttpMultiplexedConnectionContext(
+                "TestConnectionId",
+                connectionContext ?? new TestMultiplexedConnectionContext(),
+                serviceContext ?? CreateServiceContext(new KestrelServerOptions()),
+                connectionFeatures ?? new FeatureCollection(),
+                memoryPool ?? PinnedBlockMemoryPoolFactory.Create(),
+                localEndPoint,
+                remoteEndPoint);
+            http3ConnectionContext.TimeoutControl = timeoutControl;
+
+            return http3ConnectionContext;
+        }
+
         public static AddressBindContext CreateAddressBindContext(
             ServerAddressesFeature serverAddressesFeature,
             KestrelServerOptions serverOptions,
             ILogger logger,
             Func<ListenOptions, Task> createBinding)
+        {
+            var context = new AddressBindContext(
+                serverAddressesFeature,
+                serverOptions,
+                logger,
+                (listenOptions, cancellationToken) => createBinding(listenOptions));
+
+            return context;
+        }
+
+        public static AddressBindContext CreateAddressBindContext(
+            ServerAddressesFeature serverAddressesFeature,
+            KestrelServerOptions serverOptions,
+            ILogger logger,
+            Func<ListenOptions, CancellationToken, Task> createBinding)
         {
             var context = new AddressBindContext(
                 serverAddressesFeature,
@@ -121,6 +161,63 @@ namespace Microsoft.AspNetCore.Testing
             context.TimeoutControl = timeoutControl;
 
             return context;
+        }
+
+        public static Http3StreamContext CreateHttp3StreamContext(
+            string connectionId = null,
+            ConnectionContext connectionContext = null,
+            ServiceContext serviceContext = null,
+            IFeatureCollection connectionFeatures = null,
+            MemoryPool<byte> memoryPool = null,
+            IPEndPoint localEndPoint = null,
+            IPEndPoint remoteEndPoint = null,
+            IDuplexPipe transport = null,
+            ITimeoutControl timeoutControl = null,
+            IHttp3StreamLifetimeHandler streamLifetimeHandler = null)
+        {
+            var context = new Http3StreamContext
+            (
+                connectionId: connectionId ?? "TestConnectionId",
+                protocols: HttpProtocols.Http3,
+                connectionContext: connectionContext,
+                serviceContext: serviceContext ?? CreateServiceContext(new KestrelServerOptions()),
+                connectionFeatures: connectionFeatures ?? new FeatureCollection(),
+                memoryPool: memoryPool ?? MemoryPool<byte>.Shared,
+                localEndPoint: localEndPoint,
+                remoteEndPoint: remoteEndPoint,
+                transport: transport,
+                streamLifetimeHandler: streamLifetimeHandler,
+                streamContext: null,
+                settings: null
+            );
+            context.TimeoutControl = timeoutControl;
+
+            return context;
+        }
+
+        private class TestMultiplexedConnectionContext : MultiplexedConnectionContext
+        {
+            public override string ConnectionId { get; set; }
+            public override IFeatureCollection Features { get; }
+            public override IDictionary<object, object> Items { get; set; }
+
+            public override void Abort()
+            {
+            }
+
+            public override void Abort(ConnectionAbortedException abortReason)
+            {
+            }
+
+            public override ValueTask<ConnectionContext> AcceptAsync(CancellationToken cancellationToken = default)
+            {
+                return default;
+            }
+
+            public override ValueTask<ConnectionContext> ConnectAsync(IFeatureCollection features = null, CancellationToken cancellationToken = default)
+            {
+                return default;
+            }
         }
     }
 }

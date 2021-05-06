@@ -15,12 +15,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.HttpSys.Internal;
 using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 
 namespace Microsoft.AspNetCore.Server.HttpSys
 {
     internal sealed class Request
     {
-        private X509Certificate2 _clientCert;
+        private X509Certificate2? _clientCert;
         // TODO: https://github.com/aspnet/HttpSysServer/issues/231
         // private byte[] _providedTokenBindingId;
         // private byte[] _referredTokenBindingId;
@@ -28,12 +29,12 @@ namespace Microsoft.AspNetCore.Server.HttpSys
         private BoundaryType _contentBoundaryType;
 
         private long? _contentLength;
-        private RequestStream _nativeStream;
+        private RequestStream? _nativeStream;
 
-        private AspNetCore.HttpSys.Internal.SocketAddress _localEndPoint;
-        private AspNetCore.HttpSys.Internal.SocketAddress _remoteEndPoint;
+        private AspNetCore.HttpSys.Internal.SocketAddress? _localEndPoint;
+        private AspNetCore.HttpSys.Internal.SocketAddress? _remoteEndPoint;
 
-        private IReadOnlyDictionary<int, ReadOnlyMemory<byte>> _requestInfo;
+        private IReadOnlyDictionary<int, ReadOnlyMemory<byte>>? _requestInfo;
 
         private bool _isDisposed = false;
 
@@ -48,9 +49,9 @@ namespace Microsoft.AspNetCore.Server.HttpSys
             SslStatus = requestContext.SslStatus;
 
             KnownMethod = requestContext.VerbId;
-            Method = requestContext.GetVerb();
+            Method = requestContext.GetVerb()!;
 
-            RawUrl = requestContext.GetRawUrl();
+            RawUrl = requestContext.GetRawUrl()!;
 
             var cookedUrl = requestContext.GetCookedUrl();
             QueryString = cookedUrl.GetQueryString() ?? string.Empty;
@@ -87,7 +88,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
                         Path = originalPath.Substring(prefix.PathWithoutTrailingSlash.Length);
                     }
                 }
-                 else if (requestContext.Server.Options.UrlPrefixes.TryMatchLongestPrefix(IsHttps, cookedUrl.GetHost(), originalPath, out var pathBase, out var path))
+                 else if (requestContext.Server.Options.UrlPrefixes.TryMatchLongestPrefix(IsHttps, cookedUrl.GetHost()!, originalPath, out var pathBase, out var path))
                 {
                     PathBase = pathBase;
                     Path = path;
@@ -133,14 +134,14 @@ namespace Microsoft.AspNetCore.Server.HttpSys
                 if (_contentBoundaryType == BoundaryType.None)
                 {
                     // Note Http.Sys adds the Transfer-Encoding: chunked header to HTTP/2 requests with bodies for back compat.
-                    string transferEncoding = Headers[HttpKnownHeaderNames.TransferEncoding];
+                    string transferEncoding = Headers[HeaderNames.TransferEncoding];
                     if (string.Equals("chunked", transferEncoding?.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
                         _contentBoundaryType = BoundaryType.Chunked;
                     }
                     else
                     {
-                        string length = Headers[HttpKnownHeaderNames.ContentLength];
+                        string length = Headers[HeaderNames.ContentLength];
                         long value;
                         if (length != null && long.TryParse(length.Trim(), NumberStyles.None,
                             CultureInfo.InvariantCulture.NumberFormat, out value))
@@ -169,7 +170,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
 
         public Stream Body => EnsureRequestStream() ?? Stream.Null;
 
-        private RequestStream EnsureRequestStream()
+        private RequestStream? EnsureRequestStream()
         {
             if (_nativeStream == null && HasEntityBody)
             {
@@ -219,7 +220,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
             {
                 if (_remoteEndPoint == null)
                 {
-                    _remoteEndPoint = RequestContext.GetRemoteEndPoint();
+                    _remoteEndPoint = RequestContext.GetRemoteEndPoint()!;
                 }
 
                 return _remoteEndPoint;
@@ -232,7 +233,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
             {
                 if (_localEndPoint == null)
                 {
-                    _localEndPoint = RequestContext.GetLocalEndPoint();
+                    _localEndPoint = RequestContext.GetLocalEndPoint()!;
                 }
 
                 return _localEndPoint;
@@ -240,9 +241,9 @@ namespace Microsoft.AspNetCore.Server.HttpSys
         }
 
         // TODO: Lazy cache?
-        public IPAddress RemoteIpAddress => RemoteEndPoint.GetIPAddress();
+        public IPAddress? RemoteIpAddress => RemoteEndPoint.GetIPAddress();
 
-        public IPAddress LocalIpAddress => LocalEndPoint.GetIPAddress();
+        public IPAddress? LocalIpAddress => LocalEndPoint.GetIPAddress();
 
         public int RemotePort => RemoteEndPoint.GetPort();
 
@@ -312,6 +313,10 @@ namespace Microsoft.AspNetCore.Server.HttpSys
             {
                 Protocol |= SslProtocols.Tls12;
             }
+            if ((Protocol & SslProtocols.Tls13) != 0)
+            {
+                Protocol |= SslProtocols.Tls13;
+            }
 
             CipherAlgorithm = handshake.CipherType;
             CipherStrength = (int)handshake.CipherStrength;
@@ -321,7 +326,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
             KeyExchangeStrength = (int)handshake.KeyExchangeStrength;
         }
 
-        public X509Certificate2 ClientCertificate
+        public X509Certificate2? ClientCertificate
         {
             get
             {
@@ -333,11 +338,11 @@ namespace Microsoft.AspNetCore.Server.HttpSys
                     }
                     catch (CryptographicException ce)
                     {
-                        RequestContext.Logger.LogDebug(LoggerEventIds.ErrorInReadingCertificate, ce, "An error occurred reading the client certificate.");
+                        Log.ErrorInReadingCertificate(RequestContext.Logger, ce);
                     }
                     catch (SecurityException se)
                     {
-                        RequestContext.Logger.LogDebug(LoggerEventIds.ErrorInReadingCertificate, se, "An error occurred reading the client certificate.");
+                        Log.ErrorInReadingCertificate(RequestContext.Logger, se);
                     }
                 }
 
@@ -350,7 +355,7 @@ namespace Microsoft.AspNetCore.Server.HttpSys
         // Populates the client certificate.  The result may be null if there is no client cert.
         // TODO: Does it make sense for this to be invoked multiple times (e.g. renegotiate)? Client and server code appear to
         // enable this, but it's unclear what Http.Sys would do.
-        public async Task<X509Certificate2> GetClientCertificateAsync(CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<X509Certificate2?> GetClientCertificateAsync(CancellationToken cancellationToken = default(CancellationToken))
         {
             if (SslStatus == SslStatus.Insecure)
             {
@@ -446,6 +451,17 @@ namespace Microsoft.AspNetCore.Server.HttpSys
                 _nativeStream = new RequestStream(RequestContext);
             }
             _nativeStream.SwitchToOpaqueMode();
+        }
+
+        private static class Log
+        {
+            private static readonly Action<ILogger, Exception?> _errorInReadingCertificate =
+                LoggerMessage.Define(LogLevel.Debug, LoggerEventIds.ErrorInReadingCertificate, "An error occurred reading the client certificate.");
+
+            public static void ErrorInReadingCertificate(ILogger logger, Exception exception)
+            {
+                _errorInReadingCertificate(logger, exception);
+            }
         }
     }
 }

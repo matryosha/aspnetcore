@@ -81,13 +81,25 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                 return;
             }
 
+            // HTTP/2
             // Don't enforce the rate timeout if there is back pressure due to HTTP/2 connection-level input
             // flow control. We don't consider stream-level flow control, because we wouldn't be timing a read
             // for any stream that didn't have a completely empty stream-level flow control window.
+            //
+            // HTTP/3
+            // This isn't (currently) checked. Reasons:
+            // - We're not sure how often people in the real-world run into this. If it
+            //   becomes a problem then we'll need to revisit.
+            // - There isn't a way to get this information easily and efficently from msquic.
+            // - With QUIC, bytes can be received out of order. The connection window could
+            //   be filled up out of order so that availablility is low but there is still
+            //   no data available to use. Would need a smarter way to handle this situation.
             if (_connectionInputFlowControl?.IsAvailabilityLow == true)
             {
                 return;
             }
+
+            var timeout = false;
 
             lock (_readTimingLock)
             {
@@ -107,10 +119,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                     var elapsedSeconds = (double)_readTimingElapsedTicks / TimeSpan.TicksPerSecond;
                     var rate = _readTimingBytesRead / elapsedSeconds;
 
-                    if (rate < _minReadRate.BytesPerSecond && !Debugger.IsAttached)
-                    {
-                        _timeoutHandler.OnTimeout(TimeoutReason.ReadDataRate);
-                    }
+                    timeout = rate < _minReadRate.BytesPerSecond && !Debugger.IsAttached;
                 }
 
                 // PauseTimingReads() cannot just set _timingReads to false. It needs to go through at least one tick
@@ -122,10 +131,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                     _readTimingPauseRequested = false;
                 }
             }
+
+            if (timeout)
+            {
+                // Run callbacks outside of the lock
+                _timeoutHandler.OnTimeout(TimeoutReason.ReadDataRate);
+            }
         }
 
         private void CheckForWriteDataRateTimeout(long timestamp)
         {
+            var timeout = false;
+
             lock (_writeTimingLock)
             {
                 // Assume overly long tick intervals are the result of server resource starvation.
@@ -137,10 +154,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                     _writeTimingTimeoutTimestamp += extraTimeForTick;
                 }
 
-                if (_concurrentAwaitingWrites > 0 && timestamp > _writeTimingTimeoutTimestamp && !Debugger.IsAttached)
-                {
-                    _timeoutHandler.OnTimeout(TimeoutReason.WriteDataRate);
-                }
+                timeout = _concurrentAwaitingWrites > 0 && timestamp > _writeTimingTimeoutTimestamp && !Debugger.IsAttached;
+            }
+
+            if (timeout)
+            {
+                // Run callbacks outside of the lock
+                _timeoutHandler.OnTimeout(TimeoutReason.WriteDataRate);
             }
         }
 

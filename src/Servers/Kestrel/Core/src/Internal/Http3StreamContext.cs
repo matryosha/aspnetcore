@@ -6,6 +6,7 @@ using System.IO.Pipelines;
 using System.Net;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 {
@@ -21,11 +22,17 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             IPEndPoint? localEndPoint,
             IPEndPoint? remoteEndPoint,
             IDuplexPipe transport,
-            ConnectionContext streamContext) : base(connectionId, protocols, connectionContext, serviceContext, connectionFeatures, memoryPool, localEndPoint, remoteEndPoint, transport)
+            IHttp3StreamLifetimeHandler streamLifetimeHandler,
+            ConnectionContext streamContext,
+            Http3PeerSettings settings) : base(connectionId, protocols, connectionContext, serviceContext, connectionFeatures, memoryPool, localEndPoint, remoteEndPoint, transport)
         {
+            StreamLifetimeHandler = streamLifetimeHandler;
             StreamContext = streamContext;
+            ServerSettings = settings;
         }
 
+        public IHttp3StreamLifetimeHandler StreamLifetimeHandler { get; }
         public ConnectionContext StreamContext { get; }
+        public Http3PeerSettings ServerSettings { get; }
     }
 }

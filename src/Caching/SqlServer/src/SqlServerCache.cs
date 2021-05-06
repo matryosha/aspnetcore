@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Threading;
@@ -27,6 +26,10 @@ namespace Microsoft.Extensions.Caching.SqlServer
         private readonly TimeSpan _defaultSlidingExpiration;
         private readonly Object _mutex = new Object();
 
+        /// <summary>
+        /// Initializes a new instance of <see cref="SqlServerCache"/>.
+        /// </summary>
+        /// <param name="options">The configuration options.</param>
         public SqlServerCache(IOptions<SqlServerCacheOptions> options)
         {
             var cacheOptions = options.Value;
@@ -88,6 +91,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             }
         }
 
+        /// <inheritdoc />
         public byte[] Get(string key)
         {
             if (key == null)
@@ -102,6 +106,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             return value;
         }
 
+        /// <inheritdoc />
         public async Task<byte[]> GetAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -118,6 +123,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             return value;
         }
 
+        /// <inheritdoc />
         public void Refresh(string key)
         {
             if (key == null)
@@ -130,6 +136,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             ScanForExpiredItemsIfRequired();
         }
 
+        /// <inheritdoc />
         public async Task RefreshAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -144,6 +151,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             ScanForExpiredItemsIfRequired();
         }
 
+        /// <inheritdoc />
         public void Remove(string key)
         {
             if (key == null)
@@ -156,6 +164,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             ScanForExpiredItemsIfRequired();
         }
 
+        /// <inheritdoc />
         public async Task RemoveAsync(string key, CancellationToken token = default(CancellationToken))
         {
             if (key == null)
@@ -170,6 +179,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             ScanForExpiredItemsIfRequired();
         }
 
+        /// <inheritdoc />
         public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
         {
             if (key == null)
@@ -194,6 +204,7 @@ namespace Microsoft.Extensions.Caching.SqlServer
             ScanForExpiredItemsIfRequired();
         }
 
+        /// <inheritdoc />
         public async Task SetAsync(
             string key,
             byte[] value,

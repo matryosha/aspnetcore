@@ -47,26 +47,15 @@ namespace Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore
             var modelDiffer = context.GetService<IMigrationsModelDiffer>();
 
             var snapshotModel = migrationsAssembly.ModelSnapshot?.Model;
-            if (snapshotModel is IConventionModel conventionModel)
-            {
-                var conventionSet = context.GetService<IConventionSetBuilder>().CreateConventionSet();
-
-                var typeMappingConvention = conventionSet.ModelFinalizingConventions.OfType<TypeMappingConvention>().FirstOrDefault();
-                if (typeMappingConvention != null)
-                {
-                    typeMappingConvention.ProcessModelFinalizing(conventionModel.Builder, null);
-                }
-
-                var relationalModelConvention = conventionSet.ModelFinalizedConventions.OfType<RelationalModelConvention>().FirstOrDefault();
-                if (relationalModelConvention != null)
-                {
-                    snapshotModel = relationalModelConvention.ProcessModelFinalized(conventionModel);
-                }
-            }
 
             if (snapshotModel is IMutableModel mutableModel)
             {
                 snapshotModel = mutableModel.FinalizeModel();
+            }
+
+            if (snapshotModel != null)
+            {
+                snapshotModel = context.GetService<IModelRuntimeInitializer>().Initialize(snapshotModel);
             }
 
             // HasDifferences will return true if there is no model snapshot, but if there is an existing database
@@ -77,7 +66,9 @@ namespace Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore
                 type: dbcontextType,
                 databaseExists: databaseExists,
                 pendingModelChanges: (!databaseExists || migrationsAssembly.ModelSnapshot != null)
-                    && modelDiffer.HasDifferences(snapshotModel?.GetRelationalModel(), context.Model.GetRelationalModel()),
+                    && modelDiffer.HasDifferences(
+                        snapshotModel?.GetRelationalModel(),
+                        context.GetService<IDesignTimeModel>().Model.GetRelationalModel()),
                 pendingMigrations: databaseExists
                     ? await context.Database.GetPendingMigrationsAsync()
                     : context.Database.GetMigrations());
